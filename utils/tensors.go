@@ -68,6 +68,33 @@ func ArgSortDescending(t *tensor.Dense) ([]int, error) {
 	return indices, nil
 }
 
+func SelectRows1D(t *tensor.Dense, indices []int) (*tensor.Dense, error) {
+	shape := t.Shape()
+	if len(shape) != 1 {
+		return nil, fmt.Errorf("expected a 1D tensor, got shape %v", shape)
+	}
+	num_rows := shape[0]
+
+	selected_data := make([]float32, 0, len(indices))
+
+	for _, idx := range indices {
+		if idx >= num_rows {
+			return nil, fmt.Errorf("index %d is out of bounds", idx)
+		}
+		row, err := t.Slice(tensor.S(idx), nil, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		row_data := row.Data().([]float32)
+		selected_data = append(selected_data, row_data...)
+	}
+
+	selected_tensor := tensor.New(tensor.Of(tensor.Float32), tensor.WithShape(len(indices)), tensor.WithBacking(selected_data))
+
+	return selected_tensor, nil
+}
+
 func SelectRows2D(t *tensor.Dense, indices []int) (*tensor.Dense, error) {
 	shape := t.Shape()
 	if len(shape) != 2 {
@@ -128,14 +155,6 @@ func SelectRows3D(t *tensor.Dense, indices []int) (*tensor.Dense, error) {
 	selected_tensor := tensor.New(tensor.Of(tensor.Float32), tensor.WithShape(len(indices), num_cols, num_depth), tensor.WithBacking(selected_data))
 
 	return selected_tensor, nil
-}
-
-func GetColumn(t *tensor.Dense, col int) (*tensor.Dense, error) {
-	sliced, err := t.Slice(nil, tensor.S(col))
-	if err != nil {
-		return nil, err
-	}
-	return sliced.(*tensor.Dense), nil
 }
 
 func Maximum(a, b *tensor.Dense) (*tensor.Dense, error) {

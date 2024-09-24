@@ -105,7 +105,6 @@ func NMS(dets *tensor.Dense, threshold float32) ([]int, error) {
 		return nil, err
 	}
 
-	// Sort scores in descending order
 	order, err := utils.ArgSortDescending(scoresOwned)
 	if err != nil {
 		return nil, err
@@ -114,7 +113,8 @@ func NMS(dets *tensor.Dense, threshold float32) ([]int, error) {
 	fmt.Println("areas", areas)
 	fmt.Println("order", order)
 
-	keep := []int{}
+	keep := make([]int, 0)
+
 	for len(order) > 0 {
 		i := order[0]
 		keep = append(keep, i)
@@ -123,20 +123,32 @@ func NMS(dets *tensor.Dense, threshold float32) ([]int, error) {
 		if err != nil {
 			return nil, err
 		}
-
-		fmt.Println("x1Owned", x1Owned.Shape())
-
-		x11, err := utils.SelectRows3D(x1Owned, order[1:])
+		x11, err := x1Owned.Slice(tensor.S(order[1], len(order)))
+		if err != nil {
+			return nil, err
+		}
+		xx1, err := tensor.MaxBetween(x1i, x11)
 		if err != nil {
 			return nil, err
 		}
 
-		fmt.Println("x1i", x1i)
-		fmt.Println("x11", x11)
+		y1i, err := y1Owned.Slice(tensor.S(i))
+		if err != nil {
+			return nil, err
+		}
+		y11, err := y1Owned.Slice(tensor.S(order[1], len(order)))
+		if err != nil {
+			return nil, err
+		}
+		yy1, err := tensor.MaxBetween(y1i, y11)
+		if err != nil {
+			return nil, err
+		}
+
+		fmt.Println(xx1, yy1)
 
 		break
 
-		//xx1, _ := tensor.Maximum(x1.Slice(tensor.S(i)), x1.Slice(tensor.S(orderSlice...)))
 		//yy1, _ := tensor.Maximum(y1.Slice(tensor.S(i)), y1.Slice(tensor.S(orderSlice...)))
 		//xx2, _ := tensor.Minimum(x2.Slice(tensor.S(i)), x2.Slice(tensor.S(orderSlice...)))
 		//yy2, _ := tensor.Minimum(y2.Slice(tensor.S(i)), y2.Slice(tensor.S(orderSlice...)))
