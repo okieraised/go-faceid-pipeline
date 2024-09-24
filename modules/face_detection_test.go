@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	tritonTestURL = "127.0.0.1:8603"
+	tritonTestURL = "10.124.68.173:8603"
 )
 
 func genTestData() (*gocv.Mat, error) {
@@ -52,7 +52,7 @@ func TestNewFaceDetectionClient(t *testing.T) {
 	client, err := NewFaceDetectionClient(tritonClient, config.DefaultRetinaFaceDetectionParams)
 	assert.NoError(t, err)
 
-	err = client.Infer(*img)
+	_, _, err = client.Infer(*img)
 	assert.NoError(t, err)
 
 }
