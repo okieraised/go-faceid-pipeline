@@ -159,7 +159,6 @@ func (c *FaceDetectionClient) Infer(img gocv.Mat) (*tensor.Dense, *tensor.Dense,
 	if err != nil {
 		return nil, nil, err
 	}
-	fmt.Println("preprocessedParam", preprocessedParam)
 
 	imgShape := preprocessedImg.Size()
 	imgTensors := tensor.New(
@@ -378,6 +377,7 @@ func (c *FaceDetectionClient) Infer(img gocv.Mat) (*tensor.Dense, *tensor.Dense,
 				tensor.WithShape(0, 5),
 			)
 		}
+		return det, landmarks, nil
 	}
 
 	scores, err := utils.VStack(scoresList)
@@ -455,11 +455,43 @@ func (c *FaceDetectionClient) Infer(img gocv.Mat) (*tensor.Dense, *tensor.Dense,
 			return nil, nil, err
 		}
 	}
+	return c.postprocess(det, landmarks, preprocessedParam)
+}
 
-	fmt.Println("det", det, det.Shape())
-	fmt.Println("landmarks", landmarks, landmarks.Shape())
+func (c *FaceDetectionClient) postprocess(det, landmark *tensor.Dense, preprocessedParam float64) (*tensor.Dense, *tensor.Dense, error) {
+	detSlice, err := det.Slice(nil, tensor.S(0, 4))
+	if err != nil {
+		return nil, nil, err
+	}
 
-	return det, landmarks, err
+	detSliceOwned := tensor.New(
+		tensor.Of(tensor.Float32),
+		tensor.WithShape(detSlice.Shape()...),
+	)
+
+	err = tensor.Copy(detSliceOwned, detSlice)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	scaledDet, err := detSliceOwned.DivScalar(float32(preprocessedParam), true)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = tensor.Copy(detSlice, scaledDet)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if landmark != nil {
+		landmark, err = landmark.DivScalar(float32(preprocessedParam), true)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	return det, landmark, nil
 }
 
 func (c *FaceDetectionClient) landmarkPred(boxes, landmarkDeltas *tensor.Dense) (*tensor.Dense, error) {
@@ -613,7 +645,6 @@ func (c *FaceDetectionClient) landmarkPred(boxes, landmarkDeltas *tensor.Dense) 
 		if err != nil {
 			return nil, err
 		}
-
 	}
 
 	return pred, nil
