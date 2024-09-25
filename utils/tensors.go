@@ -157,48 +157,23 @@ func SelectRows3D(t *tensor.Dense, indices []int) (*tensor.Dense, error) {
 	return selected_tensor, nil
 }
 
-func Maximum(a, b *tensor.Dense) (*tensor.Dense, error) {
-	if !a.Shape().Eq(b.Shape()) {
-		return nil, fmt.Errorf("shapes %v and %v are not compatible for broadcasting", a.Shape(), b.Shape())
+func TensorByIndices(t *tensor.Dense, indices []int) (*tensor.Dense, error) {
+	shape := t.Shape()
+
+	if len(shape) != 1 {
+		return nil, fmt.Errorf("input tensor should be 1D, got shape %v", shape)
 	}
 
-	aData := a.Data().([]float32)
-	bData := b.Data().([]float32)
+	resultData := make([]float32, len(indices))
 
-	resultData := make([]float32, len(aData))
-
-	for i := range aData {
-		if aData[i] > bData[i] {
-			resultData[i] = aData[i]
-		} else {
-			resultData[i] = bData[i]
+	for i, idx := range indices {
+		element, err := t.At(idx)
+		if err != nil {
+			return nil, err
 		}
+		resultData[i] = element.(float32)
 	}
-
-	result := tensor.New(tensor.Of(tensor.Float32), tensor.WithShape(a.Shape()...), tensor.WithBacking(resultData))
-
-	return result, nil
-}
-
-func Minimum(a, b *tensor.Dense) (*tensor.Dense, error) {
-	if !a.Shape().Eq(b.Shape()) {
-		return nil, fmt.Errorf("shapes %v and %v are not compatible for broadcasting", a.Shape(), b.Shape())
-	}
-
-	aData := a.Data().([]float32)
-	bData := b.Data().([]float32)
-
-	resultData := make([]float32, len(aData))
-
-	for i := range aData {
-		if aData[i] < bData[i] {
-			resultData[i] = aData[i]
-		} else {
-			resultData[i] = bData[i]
-		}
-	}
-
-	result := tensor.New(tensor.Of(tensor.Float32), tensor.WithShape(a.Shape()...), tensor.WithBacking(resultData))
+	result := tensor.New(tensor.Of(tensor.Float32), tensor.WithShape(len(indices)), tensor.WithBacking(resultData))
 
 	return result, nil
 }

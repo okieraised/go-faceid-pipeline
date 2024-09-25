@@ -1,7 +1,6 @@
 package processing
 
 import (
-	"fmt"
 	"github.com/okieraised/go-faceid-pipeline/utils"
 	"gorgonia.org/tensor"
 )
@@ -11,11 +10,7 @@ func NMS(dets *tensor.Dense, threshold float32) ([]int, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	x1Owned := tensor.New(
-		tensor.Of(tensor.Float32),
-		tensor.WithShape(x1.(*tensor.Dense).Shape()...),
-	)
+	x1Owned := tensor.New(tensor.Of(tensor.Float32), tensor.WithShape(x1.(*tensor.Dense).Shape()...))
 
 	err = tensor.Copy(x1Owned, x1)
 	if err != nil {
@@ -26,12 +21,7 @@ func NMS(dets *tensor.Dense, threshold float32) ([]int, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	y1Owned := tensor.New(
-		tensor.Of(tensor.Float32),
-		tensor.WithShape(y1.(*tensor.Dense).Shape()...),
-	)
-
+	y1Owned := tensor.New(tensor.Of(tensor.Float32), tensor.WithShape(y1.(*tensor.Dense).Shape()...))
 	err = tensor.Copy(y1Owned, y1)
 	if err != nil {
 		return nil, err
@@ -42,10 +32,7 @@ func NMS(dets *tensor.Dense, threshold float32) ([]int, error) {
 		return nil, err
 	}
 
-	x2Owned := tensor.New(
-		tensor.Of(tensor.Float32),
-		tensor.WithShape(x2.(*tensor.Dense).Shape()...),
-	)
+	x2Owned := tensor.New(tensor.Of(tensor.Float32), tensor.WithShape(x2.(*tensor.Dense).Shape()...))
 
 	err = tensor.Copy(x2Owned, x2)
 	if err != nil {
@@ -57,10 +44,7 @@ func NMS(dets *tensor.Dense, threshold float32) ([]int, error) {
 		return nil, err
 	}
 
-	y2Owned := tensor.New(
-		tensor.Of(tensor.Float32),
-		tensor.WithShape(y2.(*tensor.Dense).Shape()...),
-	)
+	y2Owned := tensor.New(tensor.Of(tensor.Float32), tensor.WithShape(y2.(*tensor.Dense).Shape()...))
 
 	err = tensor.Copy(y2Owned, y2)
 	if err != nil {
@@ -72,10 +56,7 @@ func NMS(dets *tensor.Dense, threshold float32) ([]int, error) {
 		return nil, err
 	}
 
-	scoresOwned := tensor.New(
-		tensor.Of(tensor.Float32),
-		tensor.WithShape(scores.Shape()...),
-	)
+	scoresOwned := tensor.New(tensor.Of(tensor.Float32), tensor.WithShape(scores.Shape()...))
 
 	err = tensor.Copy(scoresOwned, scores)
 	if err != nil {
@@ -109,10 +90,6 @@ func NMS(dets *tensor.Dense, threshold float32) ([]int, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	fmt.Println("areas", areas)
-	fmt.Println("order", order)
-
 	keep := make([]int, 0)
 
 	for len(order) > 0 {
@@ -123,7 +100,8 @@ func NMS(dets *tensor.Dense, threshold float32) ([]int, error) {
 		if err != nil {
 			return nil, err
 		}
-		x11, err := x1Owned.Slice(tensor.S(order[1], len(order)))
+
+		x11, err := utils.TensorByIndices(x1Owned, order[1:])
 		if err != nil {
 			return nil, err
 		}
@@ -136,7 +114,9 @@ func NMS(dets *tensor.Dense, threshold float32) ([]int, error) {
 		if err != nil {
 			return nil, err
 		}
-		y11, err := y1Owned.Slice(tensor.S(order[1], len(order)))
+
+		y11, err := utils.TensorByIndices(y1Owned, order[1:])
+		//y11, err := y1Owned.Slice(tensor.S(order[1], len(order)))
 		if err != nil {
 			return nil, err
 		}
@@ -145,46 +125,105 @@ func NMS(dets *tensor.Dense, threshold float32) ([]int, error) {
 			return nil, err
 		}
 
-		fmt.Println(xx1, yy1)
+		x2i, err := x2Owned.Slice(tensor.S(i))
+		if err != nil {
+			return nil, err
+		}
 
-		break
+		x22, err := utils.TensorByIndices(x2Owned, order[1:])
+		if err != nil {
+			return nil, err
+		}
+		xx2, err := tensor.MinBetween(x2i, x22)
+		if err != nil {
+			return nil, err
+		}
 
-		//yy1, _ := tensor.Maximum(y1.Slice(tensor.S(i)), y1.Slice(tensor.S(orderSlice...)))
-		//xx2, _ := tensor.Minimum(x2.Slice(tensor.S(i)), x2.Slice(tensor.S(orderSlice...)))
-		//yy2, _ := tensor.Minimum(y2.Slice(tensor.S(i)), y2.Slice(tensor.S(orderSlice...)))
-		//
-		//w, _ := tensor.Sub(xx2, xx1)
-		//wPlus1, _ := tensor.Add(w, constantOne)
-		//h, _ := tensor.Sub(yy2, yy1)
-		//hPlus1, _ := tensor.Add(h, constantOne)
-		//
-		//// Clamp to 0 (no negative width/height)
-		//wClamped, _ := tensor.Maximum(wPlus1, constantOne)
-		//hClamped, _ := tensor.Maximum(hPlus1, constantOne)
-		//
-		//// Calculate intersection area
-		//inter, _ := tensor.Mul(wClamped, hClamped)
-		//
-		//// Compute overlap (IoU)
-		//areasI, _ := areas.At(i)
-		//areasRemaining, _ := areas.Slice(tensor.S(orderSlice...))
-		//union, _ := tensor.Sub(areasRemaining, inter)
-		//iou, _ := tensor.Div(inter, union)
-		//
-		//// Keep indices where overlap <= thresh
-		//ovrData := iou.Data().([]float32)
-		//inds := []int{}
-		//for idx, ovr := range ovrData {
-		//	if ovr <= threshold {
-		//		inds = append(inds, idx)
-		//	}
-		//}
-		//
-		//newOrder := make([]int, len(inds))
-		//for k, v := range inds {
-		//	newOrder[k] = order[v+1]
-		//}
-		//order = newOrder
+		y2i, err := y2Owned.Slice(tensor.S(i))
+		if err != nil {
+			return nil, err
+		}
+
+		y22, err := utils.TensorByIndices(y2Owned, order[1:])
+		if err != nil {
+			return nil, err
+		}
+		yy2, err := tensor.MinBetween(y2i, y22)
+		if err != nil {
+			return nil, err
+		}
+
+		w, err := xx2.(*tensor.Dense).Sub(xx1.(*tensor.Dense))
+		if err != nil {
+			return nil, err
+		}
+
+		wPlus2, err := w.AddScalar(float32(1), true)
+		if err != nil {
+			return nil, err
+		}
+
+		h, err := yy2.(*tensor.Dense).Sub(yy1.(*tensor.Dense))
+		if err != nil {
+			return nil, err
+		}
+		hPlus2, err := h.AddScalar(float32(1), true)
+		if err != nil {
+			return nil, err
+		}
+
+		wClamped, err := tensor.MaxBetween(float32(0), wPlus2)
+		if err != nil {
+			return nil, err
+		}
+
+		hClamped, err := tensor.MaxBetween(float32(0), hPlus2)
+		if err != nil {
+			return nil, err
+		}
+
+		inter, err := wClamped.(*tensor.Dense).Mul(hClamped.(*tensor.Dense))
+		if err != nil {
+			return nil, err
+		}
+
+		areasI, err := areas.Slice(tensor.S(i))
+		if err != nil {
+			return nil, err
+		}
+
+		areasRemaining, err := utils.TensorByIndices(areas, order[1:])
+		if err != nil {
+			return nil, err
+		}
+
+		areaSum, err := tensor.Add(areasI, areasRemaining)
+		if err != nil {
+			return nil, err
+		}
+
+		union, err := areaSum.(*tensor.Dense).Sub(inter)
+		if err != nil {
+			return nil, err
+		}
+
+		iou, err := inter.Div(union)
+		if err != nil {
+			return nil, err
+		}
+		ovrData := iou.Float32s()
+
+		indices := make([]int, 0)
+		for idx, ovr := range ovrData {
+			if ovr <= threshold {
+				indices = append(indices, idx)
+			}
+		}
+		newOrder := make([]int, 0)
+		for _, v := range indices {
+			newOrder = append(newOrder, order[v+1])
+		}
+		order = newOrder
 	}
 
 	return keep, nil

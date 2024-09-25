@@ -2,6 +2,7 @@ package modules
 
 import (
 	"fmt"
+	"github.com/elliotchance/orderedmap/v2"
 	"github.com/okieraised/go-faceid-pipeline/config"
 	"github.com/okieraised/go-faceid-pipeline/processing"
 	"github.com/okieraised/go-faceid-pipeline/rcnn"
@@ -24,9 +25,9 @@ type FaceDetectionClient struct {
 	iouThreshold        float32
 	fpnKeys             []string
 	featStrideFPN       []int
-	anchorConfig        map[string]processing.AnchorConfig
-	anchorsFPN          map[string]*tensor.Dense
-	numAnchors          map[string]int
+	anchorConfig        *orderedmap.OrderedMap[string, processing.AnchorConfig]
+	anchorsFPN          *orderedmap.OrderedMap[string, *tensor.Dense]
+	numAnchors          *orderedmap.OrderedMap[string, int]
 	pixelMeans          []float32
 	pixelStds           []float32
 	pixelScale          float32
@@ -53,52 +54,63 @@ func NewFaceDetectionClient(tritonClient *gotritonclient.TritonGRPCClient, cfg *
 	client.featStrideFPN = []int{32, 16, 8}
 	ratio := []float32{1.0}
 
-	client.anchorConfig = map[string]processing.AnchorConfig{
-		"32": {
+	anchorConfig := orderedmap.NewOrderedMap[string, processing.AnchorConfig]()
+	anchorConfig.Set(
+		"32", processing.AnchorConfig{
 			BaseSize:      16,
 			Ratios:        ratio,
 			Scales:        []float32{32, 16},
 			AllowedBorder: 9999,
 		},
-		"16": {
+	)
+	anchorConfig.Set(
+		"16", processing.AnchorConfig{
 			BaseSize:      16,
 			Ratios:        ratio,
 			Scales:        []float32{8, 4},
 			AllowedBorder: 9999,
 		},
-		"8": {
+	)
+	anchorConfig.Set(
+		"8", processing.AnchorConfig{
 			BaseSize:      16,
 			Ratios:        ratio,
 			Scales:        []float32{2, 1},
 			AllowedBorder: 9999,
 		},
-	}
+	)
+	client.anchorConfig = anchorConfig
 
 	client.fpnKeys = make([]string, 0)
 
-	for s := range client.anchorConfig {
+	for s, _ := range client.anchorConfig.Iterator() {
 		client.fpnKeys = append(client.fpnKeys, fmt.Sprintf("stride%s", s))
 	}
 
-	client.anchorsFPN = make(map[string]*tensor.Dense)
+	anchorsFPN := orderedmap.NewOrderedMap[string, *tensor.Dense]()
+
 	fpn, err := processing.GenerateAnchorsFPN2(false, client.anchorConfig)
 	if err != nil {
 		return nil, err
 	}
-	for idx, _ := range client.fpnKeys {
-		client.anchorsFPN[client.fpnKeys[idx]] = fpn[idx]
-	}
 
-	client.numAnchors = make(map[string]int)
+	for idx, _ := range client.fpnKeys {
+		anchorsFPN.Set(client.fpnKeys[idx], fpn[idx])
+	}
+	client.anchorsFPN = anchorsFPN
+
+	numAnchors := orderedmap.NewOrderedMap[string, int]()
 	anchorShape := make([]int, 0)
 
-	for _, v := range client.anchorsFPN {
+	for _, v := range client.anchorsFPN.Iterator() {
 		anchorShape = append(anchorShape, v.Shape()[0])
 	}
 
-	for idx := range len(client.anchorsFPN) {
-		client.numAnchors[client.fpnKeys[idx]] = anchorShape[idx]
+	for idx := range client.anchorsFPN.Keys() {
+		numAnchors.Set(client.fpnKeys[idx], anchorShape[idx])
 	}
+
+	client.numAnchors = numAnchors
 
 	client.pixelMeans = []float32{0, 0, 0}
 	client.pixelStds = []float32{1, 1, 1}
@@ -184,12 +196,19 @@ func (c *FaceDetectionClient) Infer(img gocv.Mat) (*tensor.Dense, *tensor.Dense,
 		modelInputs = append(modelInputs, modelInput)
 	}
 
+	cfgOutputs := make([]*triton_proto.ModelInferRequest_InferRequestedOutputTensor, len(c.ModelConfig.Config.Output))
+	for idx, outCfg := range c.ModelConfig.Config.Output {
+		cfgOutputs[idx] = &triton_proto.ModelInferRequest_InferRequestedOutputTensor{
+			Name: outCfg.Name,
+		}
+	}
+
 	modelRequest.Inputs = modelInputs
 	inferResp, err := c.tritonClient.ModelGRPCInfer(c.ModelParams.Timeout, modelRequest)
 	if err != nil {
 		return nil, nil, err
 	}
-	netOut := make([]*tensor.Dense, len(c.ModelConfig.Config.Output))
+	netOut := make([]*tensor.Dense, len(cfgOutputs))
 	for idx, out := range inferResp.Outputs {
 		outShape := make([]int, 0)
 		for _, shape := range out.Shape {
@@ -201,7 +220,7 @@ func (c *FaceDetectionClient) Infer(img gocv.Mat) (*tensor.Dense, *tensor.Dense,
 			tensor.WithBacking(utils.BytesToT32[float32](inferResp.RawOutputContents[idx])),
 		)
 
-		for subIdx, cfg := range c.ModelConfig.Config.Output {
+		for subIdx, cfg := range cfgOutputs {
 			if out.Name == cfg.Name {
 				netOut[subIdx] = outTensors
 			}
@@ -210,15 +229,16 @@ func (c *FaceDetectionClient) Infer(img gocv.Mat) (*tensor.Dense, *tensor.Dense,
 
 	symIdx := 0
 	for _, s := range c.featStrideFPN {
-		scores, err := netOut[symIdx].Slice(nil, tensor.S(c.numAnchors[fmt.Sprintf("stride%d", s)], netOut[symIdx].Shape()[2]-1), nil, nil)
+		anchorIdx, _ := c.numAnchors.Get(fmt.Sprintf("stride%d", s))
+		scores, err := netOut[symIdx].Slice(nil, tensor.S(anchorIdx, netOut[symIdx].Shape()[2]), nil, nil)
 		if err != nil {
 			return nil, nil, err
 		}
 		bboxDeltas := netOut[symIdx+1]
 		height, width := bboxDeltas.Shape()[2], bboxDeltas.Shape()[3]
-		A := c.numAnchors[fmt.Sprintf("stride%d", s)]
+		A, _ := c.numAnchors.Get(fmt.Sprintf("stride%d", s))
 		K := height * width
-		anchorsFPN := c.anchorsFPN[fmt.Sprintf("stride%d", s)]
+		anchorsFPN, _ := c.anchorsFPN.Get(fmt.Sprintf("stride%d", s))
 		anchors, err := rcnn.Anchors(height, width, s, anchorsFPN)
 		if err != nil {
 			return nil, nil, err
@@ -395,8 +415,6 @@ func (c *FaceDetectionClient) Infer(img gocv.Mat) (*tensor.Dense, *tensor.Dense,
 		if err != nil {
 			return nil, nil, err
 		}
-
-		fmt.Println("det", det)
 	}
 
 	proposalSlice, err := proposals.Slice(nil, tensor.S(0, 4, 1))
@@ -408,12 +426,40 @@ func (c *FaceDetectionClient) Infer(img gocv.Mat) (*tensor.Dense, *tensor.Dense,
 		return nil, nil, err
 	}
 
-	fmt.Println("preDet", preDet)
-
 	keep, err := processing.NMS(preDet, c.iouThreshold)
-	fmt.Println("keep", keep)
+	if err != nil {
+		return nil, nil, err
+	}
 
-	return nil, nil, err
+	if proposals.Shape()[1] > 4 {
+		pSliceRemaining, err := proposals.Slice(nil, tensor.S(4, proposals.Shape()[1]))
+		if err != nil {
+			return nil, nil, err
+		}
+		det, err = preDet.Hstack(pSliceRemaining.(*tensor.Dense))
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		det = preDet
+	}
+
+	det, err = utils.SelectRows2D(det, keep)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if c.useLandmarks {
+		landmarks, err = utils.SelectRows3D(landmarks, keep)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	fmt.Println("det", det, det.Shape())
+	fmt.Println("landmarks", landmarks, landmarks.Shape())
+
+	return det, landmarks, err
 }
 
 func (c *FaceDetectionClient) landmarkPred(boxes, landmarkDeltas *tensor.Dense) (*tensor.Dense, error) {

@@ -3,6 +3,7 @@ package processing
 import (
 	"errors"
 	"fmt"
+	"github.com/elliotchance/orderedmap/v2"
 	"github.com/okieraised/go-faceid-pipeline/utils"
 	"gorgonia.org/tensor"
 	"sort"
@@ -16,10 +17,10 @@ type AnchorConfig struct {
 	AllowedBorder int
 }
 
-func GenerateAnchorsFPN2(denseAnchor bool, cfg map[string]AnchorConfig) ([]*tensor.Dense, error) {
+func GenerateAnchorsFPN2(denseAnchor bool, cfg *orderedmap.OrderedMap[string, AnchorConfig]) ([]*tensor.Dense, error) {
 
 	rpnFeatStride := make([]int, 0)
-	for k := range cfg {
+	for k, _ := range cfg.Iterator() {
 		kAsInt, err := strconv.Atoi(k)
 		if err != nil {
 			return nil, err
@@ -32,7 +33,7 @@ func GenerateAnchorsFPN2(denseAnchor bool, cfg map[string]AnchorConfig) ([]*tens
 
 	anchors := make([]*tensor.Dense, 0)
 	for _, k := range rpnFeatStride {
-		v := cfg[strconv.Itoa(k)]
+		v, _ := cfg.Get(strconv.Itoa(k))
 		bs := v.BaseSize
 		ratios := tensor.New(
 			tensor.Of(tensor.Float32),
