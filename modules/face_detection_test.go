@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	tritonTestURL = "10.124.68.173:8603"
+	tritonTestURL = "127.0.0.1:8603"
 )
 
 func genTestDataSingleFace() (*gocv.Mat, error) {

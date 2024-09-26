@@ -2,7 +2,9 @@ package utils
 
 import (
 	"fmt"
+	"gocv.io/x/gocv"
 	"gorgonia.org/tensor"
+	"math"
 	"sort"
 )
 
@@ -176,4 +178,66 @@ func TensorByIndices(t *tensor.Dense, indices []int) (*tensor.Dense, error) {
 	result := tensor.New(tensor.Of(tensor.Float32), tensor.WithShape(len(indices)), tensor.WithBacking(resultData))
 
 	return result, nil
+}
+
+func TensorToPoint2fVector(t *tensor.Dense) (gocv.Point2fVector, error) {
+	points, err := TensorToPoints(t)
+	if err != nil {
+		return gocv.NewPoint2fVector(), err
+	}
+	pointVector := gocv.NewPoint2fVectorFromPoints(points)
+	return pointVector, nil
+}
+
+func TensorToPoints(t *tensor.Dense) ([]gocv.Point2f, error) {
+	shape := t.Shape()
+	if len(shape) != 2 || shape[1] != 2 {
+		return nil, fmt.Errorf("expected a 2D tensor with shape (n, 2), got shape: %v", shape)
+	}
+	data := t.Float32s()
+	n := shape[0]
+	points := make([]gocv.Point2f, n)
+	for i := 0; i < n; i++ {
+		points[i] = gocv.Point2f{
+			X: data[i*2],
+			Y: data[i*2+1],
+		}
+	}
+
+	return points, nil
+}
+
+func ArgMax(t *tensor.Dense) (int, error) {
+	data := t.Float32s()
+
+	if len(data) == 0 {
+		return -1, fmt.Errorf("tensor is empty")
+	}
+
+	maxIdx := 0
+	maxVal := data[0]
+
+	for i, val := range data {
+		if val > maxVal {
+			maxVal = val
+			maxIdx = i
+		}
+	}
+
+	return maxIdx, nil
+}
+
+func L2Norm(t *tensor.Dense) (float64, error) {
+	data := t.Float32s()
+
+	if len(data) == 0 {
+		return 0, fmt.Errorf("tensor is empty")
+	}
+
+	sumSquares := float64(0)
+	for _, val := range data {
+		sumSquares += float64(val * val)
+	}
+
+	return math.Sqrt(sumSquares), nil
 }

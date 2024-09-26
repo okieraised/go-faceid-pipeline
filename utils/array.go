@@ -2,7 +2,7 @@ package utils
 
 import "unsafe"
 
-func BytesToT32[T int32 | float32](arr []byte) []T {
+func BytesToT32[T int32 | float32 | uint32](arr []byte) []T {
 	if len(arr) == 0 {
 		return nil
 	}
