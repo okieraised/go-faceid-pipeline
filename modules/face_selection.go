@@ -70,7 +70,6 @@ func (c *FaceSelectionClient) Infer(img gocv.Mat, faceBoxes, faceKeyPoints *tens
 	}
 
 	centerBoxes := make([]*tensor.Dense, 0)
-	//centerLandmarks := make([]*tensor.Dense, 0)
 
 	for _, result := range validBoxes {
 		boxesCenterWidth := (result.GetF32(0) + result.GetF32(2)) / 2

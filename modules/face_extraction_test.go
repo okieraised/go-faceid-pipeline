@@ -49,7 +49,7 @@ func TestNewFaceExtractionClient_Single(t *testing.T) {
 	facialFeatures, err := extractClient.Infer([]gocv.Mat{*alignedImg})
 	assert.NoError(t, err)
 
-	fmt.Println("facialFeatures", facialFeatures[0].Float32s())
+	fmt.Println("facialFeatures", facialFeatures[0].Len(), facialFeatures[0].Float32s())
 
 	alignedImg.Close()
 }

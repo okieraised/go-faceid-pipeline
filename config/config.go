@@ -5,14 +5,27 @@ import (
 	"time"
 )
 
+type FaceQualityClass int
+type FaceAntiSpoofingClass int
+
 const (
-	FaceQualityClassBad = iota
+	FaceAntiSpoofingClassFake FaceAntiSpoofingClass = iota
+	FaceAntiSpoofingClassReal
+)
+
+const (
+	FaceQualityClassBad FaceQualityClass = iota
 	FaceQualityClassGood
 	FaceQualityClassWearingMask
 	FaceQualityClassWearingSunglasses
 )
 
-var QualityClassMapper = map[int]string{
+var FaceAntiSpoofingClassMapper = map[FaceAntiSpoofingClass]string{
+	FaceAntiSpoofingClassFake: "Fake",
+	FaceAntiSpoofingClassReal: "Real",
+}
+
+var FaceQualityClassMapper = map[FaceQualityClass]string{
 	FaceQualityClassBad:               "Bad",
 	FaceQualityClassGood:              "Good",
 	FaceQualityClassWearingMask:       "WearingMask",
@@ -150,5 +163,46 @@ func NewFaceSelectionParams(marginCenterLeftRatio, marginCenterRightRatio, margi
 		MinimumFaceRatio:        minimumFaceRatio,
 		MinimumWidthHeightRatio: minimumWidthHeightRatio,
 		MaximumWidthHeightRatio: maximumWidthHeightRatio,
+	}
+}
+
+type FaceAntiSpoofingParam struct {
+	ModelNames []string
+	Scales     []float32
+	ImageSizes [][2]int
+	Threshold  float32
+	Timeout    time.Duration
+	BatchSize  int
+}
+
+var DefaultFaceAntiSpoofingParam = &FaceAntiSpoofingParam{
+	ModelNames: []string{
+		"miniFAS_4",
+		"miniFAS_2_7",
+		"miniFAS_2",
+		"miniFAS_1",
+	},
+	Scales: []float32{
+		4,
+		2.7,
+		2,
+		1,
+	},
+	ImageSizes: [][2]int{
+		{80, 80}, {80, 80}, {256, 256}, {128, 128},
+	},
+	Threshold: 0.55,
+	Timeout:   20 * time.Second,
+	BatchSize: 1,
+}
+
+func NewFaceAntiSpoofingParam(ModelNames []string, timeout time.Duration, Scales []float32, imgSize [][2]int, batchSize int, threshold float32) *FaceAntiSpoofingParam {
+	return &FaceAntiSpoofingParam{
+		ModelNames: ModelNames,
+		Timeout:    timeout,
+		ImageSizes: imgSize,
+		Scales:     Scales,
+		BatchSize:  batchSize,
+		Threshold:  threshold,
 	}
 }

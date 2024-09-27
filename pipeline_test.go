@@ -1,4 +1,4 @@
-package modules
+package go_faceid_pipeline
 
 import (
 	"fmt"
@@ -20,7 +20,7 @@ const (
 )
 
 func genTestDataSingleFace() (*gocv.Mat, error) {
-	f, err := os.Open("../test_data/single.jpg")
+	f, err := os.Open("./test_data/single.jpg")
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +39,7 @@ func genTestDataSingleFace() (*gocv.Mat, error) {
 }
 
 func genTestDataMultipleFace() (*gocv.Mat, error) {
-	f, err := os.Open("../test_data/multiple.jpg")
+	f, err := os.Open("./test_data/multiple.jpg")
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func genTestDataMultipleFace() (*gocv.Mat, error) {
 }
 
 func genTestDataNoFace() (*gocv.Mat, error) {
-	f, err := os.Open("../test_data/noface.jpg")
+	f, err := os.Open("./test_data/noface.jpg")
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func genTestDataNoFace() (*gocv.Mat, error) {
 	return res, nil
 }
 
-func TestNewFaceDetectionClient_Single(t *testing.T) {
+func TestNewGeneralExtractPipeline_Single(t *testing.T) {
 	tritonClient, err := gotritonclient.NewTritonGRPCClient(
 		tritonTestURL,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -87,17 +87,18 @@ func TestNewFaceDetectionClient_Single(t *testing.T) {
 	img, err := genTestDataSingleFace()
 	assert.NoError(t, err)
 	defer img.Close()
-	client, err := NewFaceDetectionClient(tritonClient, config.DefaultRetinaFaceDetectionParams)
+
+	client, err := NewGeneralExtractPipeline(tritonClient)
 	assert.NoError(t, err)
 
-	det, kpss, err := client.Infer(*img)
+	resp, err := client.ExtractFaceFeatures(*img, false)
 	assert.NoError(t, err)
+	assert.Equal(t, config.FaceQualityClassGood, resp.FaceQuality)
 
-	fmt.Println("det", det)
-	fmt.Println("kpss", kpss)
+	fmt.Println("resp", resp)
 }
 
-func TestNewFaceDetectionClient_Multiple(t *testing.T) {
+func TestNewGeneralExtractPipeline_Multiple(t *testing.T) {
 	tritonClient, err := gotritonclient.NewTritonGRPCClient(
 		tritonTestURL,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -108,17 +109,20 @@ func TestNewFaceDetectionClient_Multiple(t *testing.T) {
 	img, err := genTestDataMultipleFace()
 	assert.NoError(t, err)
 	defer img.Close()
-	client, err := NewFaceDetectionClient(tritonClient, config.DefaultRetinaFaceDetectionParams)
+
+	client, err := NewGeneralExtractPipeline(tritonClient)
 	assert.NoError(t, err)
 
-	det, kpss, err := client.Infer(*img)
+	resp, err := client.ExtractFaceFeatures(*img, false)
 	assert.NoError(t, err)
+	assert.Equal(t, config.FaceQualityClassGood, resp.FaceQuality)
+	assert.Equal(t, 10, resp.FaceCount)
 
-	fmt.Println("det", det.Shape()[0])
-	fmt.Println("kpss", kpss)
+	fmt.Println("resp", resp)
+
 }
 
-func TestNewFaceDetectionClient_NoFace(t *testing.T) {
+func TestNewGeneralExtractPipeline_NoFace(t *testing.T) {
 	tritonClient, err := gotritonclient.NewTritonGRPCClient(
 		tritonTestURL,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -129,11 +133,12 @@ func TestNewFaceDetectionClient_NoFace(t *testing.T) {
 	img, err := genTestDataNoFace()
 	assert.NoError(t, err)
 	defer img.Close()
-	client, err := NewFaceDetectionClient(tritonClient, config.DefaultRetinaFaceDetectionParams)
+
+	client, err := NewGeneralExtractPipeline(tritonClient)
 	assert.NoError(t, err)
 
-	det, kpss, err := client.Infer(*img)
+	resp, err := client.ExtractFaceFeatures(*img, false)
 	assert.NoError(t, err)
-	fmt.Println(det.Shape())
-	fmt.Println(kpss.Shape())
+	assert.Equal(t, config.FaceQualityClassBad, resp.FaceQuality)
+	assert.Equal(t, 0, resp.FaceCount)
 }
