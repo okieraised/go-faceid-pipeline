@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-func TestNewFaceAntiSpoofingClient(t *testing.T) {
+func TestNewFaceQualityAssessmentClient(t *testing.T) {
 	tritonClient, err := gotritonclient.NewTritonGRPCClient(
 		tritonTestURL,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -32,7 +32,7 @@ func TestNewFaceAntiSpoofingClient(t *testing.T) {
 
 	selectionClient := NewFaceSelectionClient(config.DefaultFaceSelectionParams)
 
-	selectedFaceBox, _, err := selectionClient.Infer(*img, det, kpss, utils.RefPointer(false))
+	selectedFaceBox, selectedFacePoint, err := selectionClient.Infer(*img, det, kpss, utils.RefPointer(false))
 	assert.NoError(t, err)
 
 	faceBoxesS, err := selectedFaceBox.Slice(tensor.S(0, 4))
@@ -43,9 +43,14 @@ func TestNewFaceAntiSpoofingClient(t *testing.T) {
 	err = tensor.Copy(faceBoxes, faceBoxesS)
 	assert.NoError(t, err)
 
-	faceAFClient := NewFaceAntiSpoofingClient(tritonClient, config.DefaultFaceAntiSpoofingParam)
+	alignClient := NewFaceAlignmentClient(config.DefaultFaceAlignParams)
+	alignedImg, err := alignClient.Infer(*img, selectedFaceBox, selectedFacePoint)
+	assert.NoError(t, err)
 
-	_, err = faceAFClient.Infer([]gocv.Mat{*img}, []*tensor.Dense{faceBoxes})
+	faceQualityAssessment, err := NewFaceQualityAssessmentClient(tritonClient, config.DefaultFaceQualityAssessmentParams)
+	assert.NoError(t, err)
+
+	_, _, err = faceQualityAssessment.Infer([]gocv.Mat{*alignedImg})
 	assert.NoError(t, err)
 
 }

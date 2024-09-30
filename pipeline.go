@@ -18,11 +18,13 @@ type GeneralExtractionResult struct {
 }
 
 type AntiSpoofingExtractionResult struct {
-	FacialFeatures  *tensor.Dense           `json:"facial_features"`
-	FaceCount       int                     `json:"face_count"`
-	FaceQuality     config.FaceQualityClass `json:"face_quality"`
-	QualityScore    float32                 `json:"quality_score"`
-	SelectedFaceBox *tensor.Dense           `json:"selected_face_box"`
+	FacialFeatures         *tensor.Dense           `json:"facial_features"`
+	FaceCount              int                     `json:"face_count"`
+	FaceQuality            config.FaceQualityClass `json:"face_quality"`
+	QualityScore           float32                 `json:"quality_score"`
+	SelectedFaceBox        *tensor.Dense           `json:"selected_face_box"`
+	SpoofingCheck          int                     `json:"spoofing_check"`
+	QualityAssessmentClass config.FaceQualityClass `json:"quality_assessment_class"`
 }
 
 type GeneralExtractPipeline struct {
@@ -114,12 +116,14 @@ func (c *GeneralExtractPipeline) ExtractFaceFeatures(img gocv.Mat, isEnroll bool
 }
 
 type AntiSpoofingExtractPipeline struct {
-	tritonClient   *gotritonclient.TritonGRPCClient
-	faceDetection  *modules.FaceDetectionClient
-	faceSelection  *modules.FaceSelectionClient
-	faceAlignment  *modules.FaceAlignmentClient
-	faceQuality    *modules.FaceQualityClient
-	faceExtraction *modules.FaceExtractionClient
+	tritonClient          *gotritonclient.TritonGRPCClient
+	faceDetection         *modules.FaceDetectionClient
+	faceSelection         *modules.FaceSelectionClient
+	faceAlignment         *modules.FaceAlignmentClient
+	faceQuality           *modules.FaceQualityClient
+	faceExtraction        *modules.FaceExtractionClient
+	faceAntiSpoofing      *modules.FaceAntiSpoofingClient
+	faceQualityAssessment *modules.FaceQualityAssessmentClient
 }
 
 func NewAntiSpoofingExtractPipeline(tritonClient *gotritonclient.TritonGRPCClient) (*AntiSpoofingExtractPipeline, error) {
@@ -155,5 +159,86 @@ func (c *AntiSpoofingExtractPipeline) ExtractFaceFeatures(img gocv.Mat, isEnroll
 	//var err error
 	resp := &AntiSpoofingExtractionResult{}
 
+	detections, keyPoints, err := c.faceDetection.Infer(img)
+	if err != nil {
+		return resp, err
+	}
+	resp.FaceCount = detections.Shape()[0]
+	if resp.FaceCount == 0 {
+		return resp, nil
+	}
+
+	selectedFaceBox, selectedFacePoint, err := c.faceSelection.Infer(img, detections, keyPoints, utils.RefPointer(isEnroll))
+	if err != nil {
+		return resp, err
+	}
+
+	if selectedFaceBox != nil {
+
+		if spoofingControl {
+			faceBoxesS, err := selectedFaceBox.Slice(tensor.S(0, 4))
+			if err != nil {
+				return resp, err
+			}
+			faceBoxes := tensor.New(tensor.Of(tensor.Float32), tensor.WithShape(selectedFaceBox.Shape()...))
+			err = tensor.Copy(faceBoxes, faceBoxesS)
+			if err != nil {
+				return resp, err
+			}
+			spoofingCheck, err := c.faceAntiSpoofing.Infer([]gocv.Mat{img}, []*tensor.Dense{faceBoxes})
+			if err != nil {
+				return resp, err
+			}
+			spoofing := spoofingCheck[0].Ints()[0]
+			resp.SpoofingCheck = spoofing
+		}
+
+		resp.SelectedFaceBox = selectedFaceBox
+		alignedFaceImages, err := c.faceAlignment.Infer(img, selectedFaceBox, selectedFacePoint)
+		if err != nil {
+			return resp, err
+		}
+
+		defer func(m *gocv.Mat) {
+			cErr := m.Close()
+			if cErr != nil && err == nil {
+				err = cErr
+			}
+		}(alignedFaceImages)
+
+		qualityScores, qualityClasses, err := c.faceQuality.Infer([]gocv.Mat{*alignedFaceImages})
+		if err != nil {
+			return resp, err
+		}
+		resp.QualityScore = qualityScores[0]
+		resp.FaceQuality = config.FaceQualityClass(qualityClasses[0])
+
+		_, qualityAssessmentClasses, err := c.faceQualityAssessment.Infer([]gocv.Mat{*alignedFaceImages})
+		if err != nil {
+			return resp, err
+		}
+		resp.QualityAssessmentClass = config.FaceQualityClass(qualityAssessmentClasses[0])
+
+		if !isEnroll {
+			if config.FaceQualityClass(qualityClasses[0]) == config.FaceQualityClassWearingMask {
+				return resp, nil
+			}
+			facialFeatures, err := c.faceExtraction.Infer([]gocv.Mat{*alignedFaceImages})
+			if err != nil {
+				return resp, err
+			}
+			resp.FacialFeatures = facialFeatures[0]
+		} else {
+			if config.FaceQualityClass(qualityClasses[0]) == config.FaceQualityClassGood && config.FaceQualityClass(qualityAssessmentClasses[0]) == config.FaceQualityClassGood {
+				facialFeatures, err := c.faceExtraction.Infer([]gocv.Mat{*alignedFaceImages})
+				if err != nil {
+					return resp, err
+				}
+				resp.FacialFeatures = facialFeatures[0]
+			} else {
+				resp.QualityAssessmentClass = config.FaceQualityClassBad
+			}
+		}
+	}
 	return resp, nil
 }

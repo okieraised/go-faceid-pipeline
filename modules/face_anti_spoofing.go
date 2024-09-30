@@ -48,13 +48,13 @@ func NewFaceAntiSpoofingClient(tritonClient *gotritonclient.TritonGRPCClient, cf
 	return client
 }
 
-func (c *FaceAntiSpoofingClient) Infer(imgs []gocv.Mat, faceBoxes []*tensor.Dense) error {
+func (c *FaceAntiSpoofingClient) Infer(imgs []gocv.Mat, faceBoxes []*tensor.Dense) ([]*tensor.Dense, error) {
 
 	listImageScales := make([][]gocv.Mat, len(c.scales))
 	listWeightScales := make([][]float64, len(c.scales))
 
 	if len(imgs) != len(faceBoxes) {
-		return errors.New("number of images and face boxes must be equal")
+		return nil, errors.New("number of images and face boxes must be equal")
 	}
 
 	for idx := range len(imgs) {
@@ -62,37 +62,36 @@ func (c *FaceAntiSpoofingClient) Infer(imgs []gocv.Mat, faceBoxes []*tensor.Dens
 		gocv.CvtColor(imgs[idx], &bgrImg, gocv.ColorRGBToBGR)
 		tmps, weights, err := c.getScaleImage(bgrImg, faceBoxes[idx])
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for i := range c.scales {
 			listImageScales[i] = append(listImageScales[i], tmps[i])
 			listWeightScales[i] = append(listWeightScales[i], weights[i])
 		}
-
 	}
 
 	outputs := make([][]*tensor.Dense, 0)
 	for idx := range c.scales {
 		preprocessedImages, err := c.preprocess(listImageScales[idx], idx)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		for i := 0; i < preprocessedImages.Shape()[0]; i += c.batchSize {
 			tensorS, err := preprocessedImages.Slice(tensor.S(i, i+c.batchSize), nil, nil, nil)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			inputTensor := tensor.New(tensor.Of(tensor.Float32), tensor.WithShape(tensorS.(*tensor.Dense).Shape()...))
 			err = tensor.Copy(inputTensor, tensorS)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			inferenceConfig, err := c.tritonClient.GetModelConfiguration(c.ModelParams.Timeout, c.ModelParams.ModelNames[idx], "")
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			modelRequest := &triton_proto.ModelInferRequest{
@@ -113,7 +112,7 @@ func (c *FaceAntiSpoofingClient) Infer(imgs []gocv.Mat, faceBoxes []*tensor.Dens
 			modelRequest.Inputs = modelInputs
 			inferResp, err := c.tritonClient.ModelGRPCInfer(c.ModelParams.Timeout, modelRequest)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 			netOut := make([]*tensor.Dense, 0)
@@ -132,68 +131,21 @@ func (c *FaceAntiSpoofingClient) Infer(imgs []gocv.Mat, faceBoxes []*tensor.Dens
 			outputs = append(outputs, netOut)
 		}
 	}
+
 	results, err := c.postprocess(outputs, listWeightScales)
-	if err != nil {
-		return err
-	}
-	fmt.Println("results", results)
-
-	return nil
-}
-
-do the same but with output as float64
-
-func (c *FaceAntiSpoofingClient) liveScore(output [][]*tensor.Dense, weights [][]float64) (float64, error) {
-	if len(output) != len(weights) {
-		return -1, errors.New("output and weights must have the same length")
-	}
-
-	var weightedSum *tensor.Dense
-	var weightsSum float32 = 0.0
-
-	// Iterate over the output and weights
-	for i, outList := range output {
-		for _, o := range outList {
-			oCol1, err := o.Slice(nil, tensor.S(1))
-			if err != nil {
-				return -1, err
-			}
-
-			weightedCol1, err := oCol1.(*tensor.Dense).MulScalar(float32(weights[i][0]), true)
-			if err != nil {
-				return -1, err
-			}
-
-			if weightedSum == nil {
-				weightedSum = weightedCol1.Clone().(*tensor.Dense)
-			} else {
-				_, err = weightedSum.Add(weightedSum, tensor.WithIncr(weightedCol1))
-				if err != nil {
-					return -1, fmt.Errorf("error adding tensors: %v", err)
-				}
-			}
-		}
-		weightsSum += float32(weights[i][0])
-	}
-
-	divWeight, err := weightedSum.DivScalar(weightsSum, true)
 	if err != nil {
 		return nil, err
 	}
-
-	return divWeight, nil
+	return results, nil
 }
 
 func (c *FaceAntiSpoofingClient) postprocess(outputs [][]*tensor.Dense, listWeightScales [][]float64) ([]*tensor.Dense, error) {
-	result := make([]*tensor.Dense, 0)
 	score, err := c.liveScore(outputs, listWeightScales)
 	if err != nil {
 		return nil, err
 	}
 
-	result = append(result, score)
-
-	return result, nil
+	return score, nil
 }
 
 func (c *FaceAntiSpoofingClient) preprocess(imgs []gocv.Mat, idx int) (*tensor.Dense, error) {
@@ -339,4 +291,64 @@ func (c *FaceAntiSpoofingClient) getNewBox(srcW, srcH int, bbox []int, scaleOri 
 	}
 
 	return int(leftTopX), int(leftTopY), int(rightBottomX), int(rightBottomY), scale / float64(scaleOri)
+}
+
+func (c *FaceAntiSpoofingClient) liveScore(outputs [][]*tensor.Dense, listWeightScales [][]float64) ([]*tensor.Dense, error) {
+	results := make([]*tensor.Dense, 0)
+
+	for i := 0; i < len(outputs[0]); i++ {
+		var weightedSum *tensor.Dense
+		weightsSum := 0.0
+		for j := 0; j < len(outputs); j++ {
+			output := outputs[j][i]
+			weight := listWeightScales[j][i]
+			weightsSum += weight
+			oCol1, err := output.Slice(nil, tensor.S(1))
+			if err != nil {
+				return nil, err
+			}
+			err = oCol1.Reshape(1)
+			if err != nil {
+				return nil, err
+			}
+			weightedCol1, err := oCol1.(*tensor.Dense).MulScalar(float32(weight), false)
+			if err != nil {
+				return nil, err
+			}
+			if weightedSum == nil {
+				weightedSum = weightedCol1.Clone().(*tensor.Dense)
+			} else {
+				weightedSum, err = weightedSum.Add(weightedCol1)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+
+		if weightsSum == 0 {
+			return nil, fmt.Errorf("sum of weights is zero")
+		}
+		result, err := weightedSum.DivScalar(float32(weightsSum), true)
+		if err != nil {
+			return nil, err
+		}
+		livenesses := make([]int, 0)
+		for _, val := range result.Float32s() {
+			var bitSetVar int
+			if val > c.threshold {
+				bitSetVar = 1
+			}
+			livenesses = append(livenesses, bitSetVar)
+		}
+
+		liveness := tensor.New(
+			tensor.Of(tensor.Int),
+			tensor.WithShape(result.Shape()...),
+			tensor.WithBacking(livenesses),
+		)
+
+		results = append(results, liveness)
+	}
+
+	return results, nil
 }

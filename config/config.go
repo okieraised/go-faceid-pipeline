@@ -206,3 +206,29 @@ func NewFaceAntiSpoofingParam(ModelNames []string, timeout time.Duration, Scales
 		Threshold:  threshold,
 	}
 }
+
+type FaceQualityAssessmentParams struct {
+	ModelName string
+	Timeout   time.Duration
+	ImageSize [2]int
+	BatchSize int
+	Threshold float32
+}
+
+var DefaultFaceQualityAssessmentParams = &FaceQualityAssessmentParams{
+	ModelName: "face_quality_assetment",
+	Timeout:   20 * time.Second,
+	ImageSize: [2]int{112, 112},
+	BatchSize: 1,
+	Threshold: 55,
+}
+
+func NewFaceQualityAssessmentParams(ModelName string, timeout time.Duration, imgSize [2]int, batchSize int, threshold float32) *FaceQualityAssessmentParams {
+	return &FaceQualityAssessmentParams{
+		ModelName: ModelName,
+		Timeout:   timeout,
+		ImageSize: imgSize,
+		BatchSize: batchSize,
+		Threshold: threshold,
+	}
+}
