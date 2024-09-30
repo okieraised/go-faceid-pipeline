@@ -142,3 +142,26 @@ func TestNewGeneralExtractPipeline_NoFace(t *testing.T) {
 	assert.Equal(t, config.FaceQualityClassBad, resp.FaceQuality)
 	assert.Equal(t, 0, resp.FaceCount)
 }
+
+func TestNewAntiSpoofingExtractPipeline_Single(t *testing.T) {
+	tritonClient, err := gotritonclient.NewTritonGRPCClient(
+		tritonTestURL,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{PermitWithoutStream: true}),
+	)
+	assert.NoError(t, err)
+
+	img, err := genTestDataSingleFace()
+	assert.NoError(t, err)
+	defer img.Close()
+
+	client, err := NewAntiSpoofingExtractPipeline(tritonClient)
+	assert.NoError(t, err)
+
+	resp, err := client.ExtractFaceFeatures(*img, false, false)
+	assert.NoError(t, err)
+	assert.Equal(t, config.FaceQualityClassGood, resp.FaceQuality)
+	assert.Equal(t, 1, resp.FaceCount)
+
+	fmt.Println("resp", resp)
+}

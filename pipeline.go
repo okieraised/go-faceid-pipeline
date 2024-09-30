@@ -152,11 +152,20 @@ func NewAntiSpoofingExtractPipeline(tritonClient *gotritonclient.TritonGRPCClien
 	}
 	client.faceExtraction = faceExtraction
 
+	faceAntiSpoofing := modules.NewFaceAntiSpoofingClient(tritonClient, config.DefaultFaceAntiSpoofingParam)
+	client.faceAntiSpoofing = faceAntiSpoofing
+
+	faceQualityAssessment, err := modules.NewFaceQualityAssessmentClient(tritonClient, config.DefaultFaceQualityAssessmentParams)
+	if err != nil {
+		return client, err
+	}
+	client.faceQualityAssessment = faceQualityAssessment
+
 	return client, nil
 }
 
 func (c *AntiSpoofingExtractPipeline) ExtractFaceFeatures(img gocv.Mat, isEnroll, spoofingControl bool) (*AntiSpoofingExtractionResult, error) {
-	//var err error
+	var err error
 	resp := &AntiSpoofingExtractionResult{}
 
 	detections, keyPoints, err := c.faceDetection.Infer(img)
